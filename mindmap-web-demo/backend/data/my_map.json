@@ -1,0 +1,37 @@
+{
+    "root_id": "24f84f4a-70f3-4742-8fc9-b6dd14b120ac",
+    "nodes": {
+        "24f84f4a-70f3-4742-8fc9-b6dd14b120ac": {
+            "id": "24f84f4a-70f3-4742-8fc9-b6dd14b120ac",
+            "text": "test",
+            "parent_id": null,
+            "children_ids": [
+                "3da2075d-0313-4212-a640-ead6d5cadeef",
+                "ec8d400d-7e10-4209-9c34-26dbcd9d859c",
+                "d95e15f1-725a-40df-80df-c86b67b6990c"
+            ],
+            "depth": 0
+        },
+        "3da2075d-0313-4212-a640-ead6d5cadeef": {
+            "id": "3da2075d-0313-4212-a640-ead6d5cadeef",
+            "text": "t",
+            "parent_id": "24f84f4a-70f3-4742-8fc9-b6dd14b120ac",
+            "children_ids": [],
+            "depth": 1
+        },
+        "ec8d400d-7e10-4209-9c34-26dbcd9d859c": {
+            "id": "ec8d400d-7e10-4209-9c34-26dbcd9d859c",
+            "text": "2",
+            "parent_id": "24f84f4a-70f3-4742-8fc9-b6dd14b120ac",
+            "children_ids": [],
+            "depth": 1
+        },
+        "d95e15f1-725a-40df-80df-c86b67b6990c": {
+            "id": "d95e15f1-725a-40df-80df-c86b67b6990c",
+            "text": "4",
+            "parent_id": "24f84f4a-70f3-4742-8fc9-b6dd14b120ac",
+            "children_ids": [],
+            "depth": 1
+        }
+    }
+}
