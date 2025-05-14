@@ -35,12 +35,27 @@ mindmap-cli/
     git clone <your-repo-url>
     cd mindmap-cli
     ```
-2.  **Prerequisites:**
-    * Python 3.7+
+2.  **Create a virtual environment (Recommended):**
+    ```bash
+    python -m venv .venv
+    ```
+3.  **Activate the virtual environment:**
+    - On Windows:
+        ```bash
+        .venv\Scripts\activate
+        ```
+    - On macOS/Linux:
+        ```bash
+        source .venv/bin/activate
+        ```
+4.  **Install the required packages:**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
 ## Usage
 
-### Interactive Mode
+### 1. Interactive Mode
 
 Start the interactive shell:
 ```bash
@@ -51,49 +66,16 @@ python main.py --interactive
 python main.py -f path/to/your_map.json
 python main.py --interactive -f path/to/your_map.json
 ```
-Once in the shell, type help for a list of commands, or help <command> for specific help.
+Once in the shell, type ```help``` for a list of commands, or ```help <command>``` for specific help.
 
-### Example:
-```
-mindmap [my_map.json]> add "New Idea" -p <parent_node_id>
-mindmap [my_map.json]> list
-mindmap [my_map.json]> exit
-```
-## One-Shot Commands
+### 2. One-Shot Mode
 
 Execute commands directly from your terminal:
-```
+```bash
 python main.py <command> [options_for_command]
 # Global option for file:
 python main.py -f path/to/map.json <command> [options_for_command]
 ```
-### Examples:
-#### Create a new map (will use data/my_map.json or specified by -f)
-```
-python main.py new "My Project Ideas"
-python main.py -f project.json new "Project X" --force
-```
-
-### Add a node (IDs are printed/listed)
-```
-python main.py -f project.json add "Core Feature" -p <root_id_of_project_x>
-```
-
-### List a map
-```
-python main.py -f project.json list
-```
-
-### Get help
-```
-python main.py help
-python main.py help new
-python main.py new --help # Argparse's help for 'new' command options
-```
-Available Commands (see help in interactive mode or python main.py help for more details):
-new, load, save
-add, list, delete, search, edit, move
-export, file (interactive only for file status), help, exit/quit (interactive only)
 
 ## Example Workflow (One-Shot)
 
