@@ -44,7 +44,7 @@ def formatted_print(message: str, level: str = "INFO", indent: int = 0, use_pref
         "RESULT": "[RESULT] ",
         "DETAIL": "  -> ",    # For sub-details
         "NONE": "",           # No prefix
-        "USAGE": "Usage: ",   # For help command usage lines
+        "USAGE": "* ",   # For help command usage lines
         "COMMAND_NAME": ""    # For command names in help list (no prefix, just color)
     }
     

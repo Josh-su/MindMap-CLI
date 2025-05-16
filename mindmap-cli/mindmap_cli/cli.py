@@ -20,7 +20,11 @@ current_map_filepath: Optional[str] = None
 def handle_new(args):
     global current_mindmap_obj, current_map_filepath
     filepath = args.file if args.file else get_default_filepath()
-    status, mindmap, msg = new_map_action(args.title, filepath, args.force)
+    # new_map_action no longer takes a title for root creation.
+    # The 'title' from argparse for 'new' in one-shot mode is now effectively unused
+    # if --file is specified or get_default_filepath() is used.
+    # We'll proceed to create an empty file at 'filepath'.
+    status, mindmap, msg = new_map_action(filepath, args.force)
     
     if status == CommandStatus.SUCCESS:
         formatted_print(msg, level="SUCCESS")
@@ -48,20 +52,29 @@ def handle_load(args): # Not typically a one-shot, but for consistency if file a
 
 def _load_mindmap_for_command(filepath_arg: Optional[str]) -> Tuple[Optional[MindMap], Optional[str]]:
     """Helper to load mindmap for one-shot commands that need one."""
-    fpath = filepath_arg if filepath_arg else get_default_filepath()
-    # For one-shot, always try to load from file.
-    mindmap, msg = load_map_from_file(fpath)
-    if not mindmap and "not found" in msg.lower():
-        # If file not found, create an empty in-memory map for the command to operate on
-        # This allows `python main.py -f new.json add "text"` to work without prior `new`        
-        formatted_print(f"File '{fpath}' not found. Operating on a new in-memory map.", level="INFO")
-        return MindMap(), fpath # Return an empty map and the target path
-    elif not mindmap:
-        formatted_print(msg, level="ERROR") # Print error message from load_map_from_file
-        sys.exit(1)
-    formatted_print(msg, level="SUCCESS") # Print success message from load_map_from_file
-    return mindmap, fpath
+    operation_target_msg: str
+    if filepath_arg:
+        fpath = filepath_arg
+        operation_target_msg = f"Operating on specified file: '{os.path.abspath(fpath)}'"
+    else:
+        fpath = get_default_filepath()
+        operation_target_msg = f"No file specified (-f), using default: '{os.path.abspath(fpath)}'"
 
+    fpath_abs = os.path.abspath(fpath)
+    formatted_print(operation_target_msg, level="INFO")
+
+    mindmap, load_msg = load_map_from_file(fpath_abs) # load_msg from load_map_from_file includes path
+
+    if not mindmap and "not found" in load_msg.lower(): # File not found case
+        formatted_print(load_msg, level="INFO") # e.g., "Info: File '...' not found."
+        formatted_print(f"Operations will be on a new in-memory map. Save to persist to '{fpath_abs}'.", level="INFO")
+        return MindMap(), fpath_abs
+    elif not mindmap:
+        formatted_print(load_msg, level="ERROR") # e.g., "Error: Could not decode..."
+        sys.exit(1)
+    
+    formatted_print(load_msg, level="SUCCESS") # e.g., "Mind map loaded successfully from '...'"
+    return mindmap, fpath_abs
 
 def handle_add(args):
     mindmap, filepath = _load_mindmap_for_command(args.file)
@@ -96,9 +109,10 @@ def handle_delete(args):
     if not mindmap: return
 
     confirm_root = False
-    if mindmap.root and args.node_id == mindmap.root.id:
+    node_to_delete_obj = mindmap.get_node(args.node_id) # Get the node object
+    if node_to_delete_obj and args.node_id in mindmap.root_ids: # Check if it's a root card
         if not args.yes: # Add a --yes flag to argparse for delete
-            formatted_print(f"Deleting the root node '{mindmap.root.text}' requires --yes confirmation for one-shot command.", level="ERROR")
+            formatted_print(f"Deleting the root card '{node_to_delete_obj.text}' requires --yes confirmation for one-shot command.", level="ERROR")
             sys.exit(1)
         confirm_root = True
         
@@ -118,8 +132,7 @@ def handle_search(args):
     if not mindmap: return
 
     status, results, msg = search_map_action(mindmap, args.text)
-    print(msg) # Prints "Found X nodes" or "No nodes found"
-    formatted_print(msg, level="INFO")
+    formatted_print(msg, level="INFO") # msg from search_map_action
     if status == CommandStatus.SUCCESS and results:
         for node, path_nodes in results:
             path_str = " -> ".join([n.text for n in path_nodes]) if path_nodes else "N/A (likely root or error)"
@@ -130,8 +143,7 @@ def handle_edit(args):
     if not mindmap: return
 
     status, _, msg = edit_node_action(mindmap, args.node_id, args.new_text)
-    print(msg)
-    if status == CommandStatus.SUCCESS:
+    if status == CommandStatus.SUCCESS: # msg from edit_node_action
         formatted_print(msg, level="SUCCESS")
         save_success, save_msg = save_map_to_file(mindmap, filepath)
         if not save_success:
@@ -217,14 +229,16 @@ def main_cli():
 
     # New
     p_new = subparsers.add_parser("new", help=get_specific_help_text("new").split('\n')[0])
-    p_new.add_argument("title", help="Root node title.")
+    # The "title" argument for 'new' in one-shot mode is less relevant now as 'new' just creates an empty file.
+    # It could be used to derive a filename if --file is not given, but current logic prioritizes --file or default.
+    p_new.add_argument("filename_or_title", help="Filename for the new map (e.g., mymap.json). If --file is also used, --file takes precedence.")
     p_new.add_argument("--force", action="store_true", help="Overwrite if file exists.")
     p_new.set_defaults(func=handle_new)
 
     # Add
     p_add = subparsers.add_parser("add", help=get_specific_help_text("add").split('\n')[0])
     p_add.add_argument("text", help="Node text.")
-    p_add.add_argument("-p", "--parent-id", help="Parent node ID (defaults to root).")
+    p_add.add_argument("-p", "--parent-id", help="Parent node ID. If omitted, creates a new root card.")
     p_add.set_defaults(func=handle_add)
 
     # List
