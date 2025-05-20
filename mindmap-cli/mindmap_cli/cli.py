@@ -2,7 +2,8 @@
 import argparse
 import sys
 import os
-from typing import Optional, Tuple
+import functools # Added for decorator
+from typing import Optional, Tuple, Callable, Any # Added Callable, Any
 from .storage import get_default_filepath, load_map_from_file, save_map_to_file # For direct load/save here
 from .mindmap import MindMap # For type hint
 from .commands_core import (
@@ -14,8 +15,58 @@ from .commands_core import (
 from .display_utils import formatted_print
 
 # This MindMap instance is loaded per one-shot command
-current_mindmap_obj: Optional[MindMap] = None
-current_map_filepath: Optional[str] = None
+current_mindmap_obj: Optional[MindMap] = None # This might become obsolete for one-shot commands
+current_map_filepath: Optional[str] = None # This might become obsolete for one-shot commands
+
+# Decorator for commands that operate on a mind map
+def mindmap_command(func: Callable[[MindMap, str, argparse.Namespace], bool]):
+    """
+    Decorator to handle loading and saving of a mind map for a command.
+    - Loads the mind map from the file specified in args.file or default.
+    - If file not found, initializes a new MindMap.
+    - Handles load errors and exits.
+    - Calls the decorated function with the mindmap, filepath, and args.
+    - If the decorated function returns True (indicating modification), saves the map.
+    """
+    @functools.wraps(func)
+    def wrapper(args: argparse.Namespace) -> None:
+        filepath_arg: Optional[str] = getattr(args, 'file', None)
+        operation_target_msg: str
+        
+        if filepath_arg:
+            fpath = filepath_arg
+            operation_target_msg = f"Operating on specified file: '{os.path.abspath(fpath)}'"
+        else:
+            fpath = get_default_filepath()
+            operation_target_msg = f"No file specified (-f), using default: '{os.path.abspath(fpath)}'"
+
+        fpath_abs = os.path.abspath(fpath)
+        formatted_print(operation_target_msg, level="INFO")
+
+        mindmap_obj, load_msg = load_map_from_file(fpath_abs)
+
+        if not mindmap_obj and "not found" in load_msg.lower():
+            formatted_print(load_msg, level="INFO")
+            formatted_print(f"Operations will be on a new in-memory map. Save to persist to '{fpath_abs}'.", level="INFO")
+            mindmap_obj = MindMap()
+        elif not mindmap_obj:
+            formatted_print(load_msg, level="ERROR")
+            sys.exit(1)
+        else:
+            formatted_print(load_msg, level="SUCCESS")
+
+        # Call the actual command handler
+        # It should return True if the map was modified and needs saving
+        modified = func(mindmap_obj, fpath_abs, args)
+
+        if modified and mindmap_obj is not None and fpath_abs is not None:
+            save_success, save_msg = save_map_to_file(mindmap_obj, fpath_abs)
+            if not save_success:
+                formatted_print(f"Error saving after command: {save_msg}", level="ERROR")
+            # else:
+                # Optionally print save success message, though commands often print their own overall success
+                # formatted_print(f"Mind map saved successfully to '{fpath_abs}'.", level="SUCCESS")
+    return wrapper
 
 def handle_new(args):
     global current_mindmap_obj, current_map_filepath
@@ -60,58 +111,49 @@ def _load_mindmap_for_command(filepath_arg: Optional[str]) -> Tuple[Optional[Min
         fpath = get_default_filepath()
         operation_target_msg = f"No file specified (-f), using default: '{os.path.abspath(fpath)}'"
 
-    fpath_abs = os.path.abspath(fpath)
-    formatted_print(operation_target_msg, level="INFO")
+    fpath_abs = os.path.abspath(fpath) # Kept for _load_mindmap_for_command, to be removed later if unused
+    # ... rest of _load_mindmap_for_command ...
+    # _load_mindmap_for_command is now removed as all relevant handlers use the decorator.
 
-    mindmap, load_msg = load_map_from_file(fpath_abs) # load_msg from load_map_from_file includes path
-
-    if not mindmap and "not found" in load_msg.lower(): # File not found case
-        formatted_print(load_msg, level="INFO") # e.g., "Info: File '...' not found."
-        formatted_print(f"Operations will be on a new in-memory map. Save to persist to '{fpath_abs}'.", level="INFO")
-        return MindMap(), fpath_abs
-    elif not mindmap:
-        formatted_print(load_msg, level="ERROR") # e.g., "Error: Could not decode..."
-        sys.exit(1)
-    
-    formatted_print(load_msg, level="SUCCESS") # e.g., "Mind map loaded successfully from '...'"
-    return mindmap, fpath_abs
-
-def handle_add(args):
-    mindmap, filepath = _load_mindmap_for_command(args.file)
-    if not mindmap: return # _load handles exit
-
+@mindmap_command
+def handle_add(mindmap: MindMap, filepath: str, args: argparse.Namespace) -> bool:
+    """Handles adding a new node to the mind map."""
     status, new_node, msg = add_node_action(mindmap, args.text, args.parent_id)
     if status == CommandStatus.SUCCESS:
         formatted_print(msg, level="SUCCESS")
-        save_success, save_msg = save_map_to_file(mindmap, filepath)
-        if not save_success:
-            formatted_print(f"Error saving after add: {save_msg}", level="ERROR")
+        return True  # Indicates modification, so decorator should save
     else:
         formatted_print(msg, level="ERROR")
-        sys.exit(1)
+        sys.exit(1) # Or return False and let main CLI decide if exit is needed for all errors
 
-def handle_list(args):
-    mindmap, _ = _load_mindmap_for_command(args.file)
-    if not mindmap: return
-
-    status, _, msg = list_map_action(mindmap)
-    if status == CommandStatus.SUCCESS and msg == "Mind map is empty.":
-        formatted_print(msg, level="INFO")
-    elif status == CommandStatus.SUCCESS:
-        mindmap.display() # Direct display
-    else:
+@mindmap_command
+def handle_list(mindmap: MindMap, filepath: str, args: argparse.Namespace) -> bool:
+    """Handles listing nodes in the mind map."""
+    status, _, msg = list_map_action(mindmap) # Assuming list_map_action returns CommandStatus
+    
+    if status == CommandStatus.SUCCESS:
+        if msg == "Mind map is empty.": # Specific message from list_map_action for empty map
+            formatted_print(msg, level="INFO")
+        else:
+            # Assuming list_map_action itself doesn't print for SUCCESS but returns data/confirmation.
+            # If list_map_action already prints, this display() might be redundant or for different formatting.
+            # For now, keeping display() as per original logic.
+            mindmap.display() # Direct display
+            if msg and msg != "Mind map is empty.": # If there's any other success message (e.g. count)
+                 formatted_print(msg, level="INFO")
+    else: # ERROR or other non-SUCCESS states
         formatted_print(msg, level="ERROR")
-        sys.exit(1)
+        sys.exit(1) # Or return False
+    
+    return False # List does not modify the map
 
-
-def handle_delete(args):
-    mindmap, filepath = _load_mindmap_for_command(args.file)
-    if not mindmap: return
-
+@mindmap_command
+def handle_delete(mindmap: MindMap, filepath: str, args: argparse.Namespace) -> bool:
+    """Handles deleting a node from the mind map."""
     confirm_root = False
-    node_to_delete_obj = mindmap.get_node(args.node_id) # Get the node object
-    if node_to_delete_obj and args.node_id in mindmap.root_ids: # Check if it's a root card
-        if not args.yes: # Add a --yes flag to argparse for delete
+    node_to_delete_obj = mindmap.get_node(args.node_id)
+    if node_to_delete_obj and args.node_id in mindmap.root_ids:
+        if not args.yes:
             formatted_print(f"Deleting the root card '{node_to_delete_obj.text}' requires --yes confirmation for one-shot command.", level="ERROR")
             sys.exit(1)
         confirm_root = True
@@ -119,71 +161,70 @@ def handle_delete(args):
     status, _, msg = delete_node_action(mindmap, args.node_id, confirm_root_delete=confirm_root)
     if status == CommandStatus.SUCCESS:
         formatted_print(msg, level="SUCCESS")
-        save_success, save_msg = save_map_to_file(mindmap, filepath)
-        if not save_success:
-            formatted_print(f"Error saving after delete: {save_msg}", level="ERROR")
-            # Consider if sys.exit(1) is needed here too
+        return True  # Indicates modification
     else:
         formatted_print(msg, level="ERROR")
         sys.exit(1)
 
-def handle_search(args):
-    mindmap, _ = _load_mindmap_for_command(args.file)
-    if not mindmap: return
-
+@mindmap_command
+def handle_search(mindmap: MindMap, filepath: str, args: argparse.Namespace) -> bool:
+    """Handles searching for nodes in the mind map."""
     status, results, msg = search_map_action(mindmap, args.text)
-    formatted_print(msg, level="INFO") # msg from search_map_action
+    formatted_print(msg, level="INFO") 
     if status == CommandStatus.SUCCESS and results:
         for node, path_nodes in results:
             path_str = " -> ".join([n.text for n in path_nodes]) if path_nodes else "N/A (likely root or error)"
-            formatted_print(f"Node: '{node.text}' (ID: {node.id}, Depth: {node.depth})", level="RESULT", use_prefix=False, indent=1) # Example, adjust prefix/level
+            formatted_print(f"Node: '{node.text}' (ID: {node.id}, Depth: {node.depth})", level="RESULT", use_prefix=False, indent=1)
             formatted_print(f"Path: {path_str}", level="DETAIL", use_prefix=False, indent=2)
-def handle_edit(args):
-    mindmap, filepath = _load_mindmap_for_command(args.file)
-    if not mindmap: return
+    # If search itself fails (e.g., bad regex if that were a feature), it would be an error
+    # But typically search returns empty results for no matches, which is a SUCCESS state.
+    # Exiting only if search_map_action indicates a true error.
+    if status == CommandStatus.ERROR:
+        # msg should already be printed by formatted_print above
+        sys.exit(1)
+    return False # Search does not modify the map
 
+@mindmap_command
+def handle_edit(mindmap: MindMap, filepath: str, args: argparse.Namespace) -> bool:
+    """Handles editing a node's text."""
     status, _, msg = edit_node_action(mindmap, args.node_id, args.new_text)
-    if status == CommandStatus.SUCCESS: # msg from edit_node_action
+    if status == CommandStatus.SUCCESS:
         formatted_print(msg, level="SUCCESS")
-        save_success, save_msg = save_map_to_file(mindmap, filepath)
-        if not save_success:
-            formatted_print(f"Error saving after edit: {save_msg}", level="ERROR")
+        return True  # Indicates modification
     else:
         formatted_print(msg, level="ERROR")
         sys.exit(1)
 
-def handle_move(args):
-    mindmap, filepath = _load_mindmap_for_command(args.file)
-    if not mindmap: return
-
+@mindmap_command
+def handle_move(mindmap: MindMap, filepath: str, args: argparse.Namespace) -> bool:
+    """Handles moving a node to a new parent."""
     status, _, msg = move_node_action(mindmap, args.node_id, args.new_parent_id)
     if status == CommandStatus.SUCCESS:
         formatted_print(msg, level="SUCCESS")
-        save_success, save_msg = save_map_to_file(mindmap, filepath)
-        if not save_success:
-            formatted_print(f"Error saving after move: {save_msg}", level="ERROR")
+        return True  # Indicates modification
     else:
         formatted_print(msg, level="ERROR")
         sys.exit(1)
 
-def handle_export(args):
-    mindmap, _ = _load_mindmap_for_command(args.file)
-    if not mindmap: return
-
-    status, content, msg = export_map_action(mindmap, args.output_file)
+@mindmap_command
+def handle_export(mindmap: MindMap, filepath: str, args: argparse.Namespace) -> bool:
+    """Handles exporting the mind map."""
+    # The 'filepath' parameter here is the source mindmap file, not the export target.
+    # args.output_file is the target for the export.
+    status, content, msg = export_map_action(mindmap, args.output_file) 
     if status == CommandStatus.SUCCESS:
-        if args.output_file: # If filepath was given, message already indicates success/failure of writing
-            formatted_print(msg, level="INFO") # msg from export_map_action is usually about file write
-        elif content: # No output_file, print content to console
+        if args.output_file: 
+            formatted_print(msg, level="INFO") 
+        elif content: 
             formatted_print("\n--- Exported Mind Map (Text Tree) ---", level="NONE", use_prefix=False)
             formatted_print(content, level="NONE", use_prefix=False)
             formatted_print("------------------------------------", level="NONE", use_prefix=False)
-        else: # No content (e.g. empty map)
+        else: 
             formatted_print(msg, level="INFO")
-    else: # Error from export_map_action
+    else: 
         formatted_print(msg, level="ERROR")
         sys.exit(1)
-
+    return False # Export does not modify the source mind map
 
 def handle_help(args):
     if args.command_name: # Specific command help
@@ -228,50 +269,48 @@ def main_cli():
     if sys.version_info >= (3,7): subparsers.required = True
 
     # New
-    p_new = subparsers.add_parser("new", help=get_specific_help_text("new").split('\n')[0])
-    # The "title" argument for 'new' in one-shot mode is less relevant now as 'new' just creates an empty file.
-    # It could be used to derive a filename if --file is not given, but current logic prioritizes --file or default.
-    p_new.add_argument("filename_or_title", help="Filename for the new map (e.g., mymap.json). If --file is also used, --file takes precedence.")
+    # The 'new' command now uses the global -f/--file for filepath, similar to other commands.
+    p_new = subparsers.add_parser("new", help="Creates a new mind map, optionally using the path from -f.")
     p_new.add_argument("--force", action="store_true", help="Overwrite if file exists.")
-    p_new.set_defaults(func=handle_new)
+    p_new.set_defaults(func=handle_new) # handle_new is not yet decorated
 
     # Add
-    p_add = subparsers.add_parser("add", help=get_specific_help_text("add").split('\n')[0])
+    p_add = subparsers.add_parser("add", help=get_specific_help_text("add").split('\n')[0]) # Decorator handles file loading/saving
     p_add.add_argument("text", help="Node text.")
     p_add.add_argument("-p", "--parent-id", help="Parent node ID. If omitted, creates a new root card.")
-    p_add.set_defaults(func=handle_add)
+    p_add.set_defaults(func=handle_add) # handle_add is now decorated
 
     # List
-    p_list = subparsers.add_parser("list", help=get_specific_help_text("list").split('\n')[0])
-    p_list.set_defaults(func=handle_list)
+    p_list = subparsers.add_parser("list", help=get_specific_help_text("list").split('\n')[0]) # Decorator handles file loading
+    p_list.set_defaults(func=handle_list) # handle_list is now decorated
 
     # Delete
     p_del = subparsers.add_parser("delete", help=get_specific_help_text("delete").split('\n')[0])
     p_del.add_argument("node_id", help="ID of node to delete.")
-    p_del.add_argument("--yes", action="store_true", help="Confirm root node deletion (if applicable).") # For one-shot
-    p_del.set_defaults(func=handle_delete)
+    p_del.add_argument("--yes", action="store_true", help="Confirm root node deletion (if applicable).") 
+    p_del.set_defaults(func=handle_delete) # Decorated
 
     # Search
     p_search = subparsers.add_parser("search", help=get_specific_help_text("search").split('\n')[0])
     p_search.add_argument("text", help="Text to search.")
-    p_search.set_defaults(func=handle_search)
+    p_search.set_defaults(func=handle_search) # Decorated
 
     # Edit
     p_edit = subparsers.add_parser("edit", help=get_specific_help_text("edit").split('\n')[0])
     p_edit.add_argument("node_id", help="ID of node to edit.")
     p_edit.add_argument("new_text", help="New text for the node.")
-    p_edit.set_defaults(func=handle_edit)
+    p_edit.set_defaults(func=handle_edit) # Decorated
 
     # Move
     p_move = subparsers.add_parser("move", help=get_specific_help_text("move").split('\n')[0])
     p_move.add_argument("node_id", help="ID of node to move.")
     p_move.add_argument("new_parent_id", help="ID of new parent node.")
-    p_move.set_defaults(func=handle_move)
+    p_move.set_defaults(func=handle_move) # Decorated
 
     # Export
     p_export = subparsers.add_parser("export", help=get_specific_help_text("export").split('\n')[0])
     p_export.add_argument("output_file", nargs="?", help="Optional .txt file to save export.")
-    p_export.set_defaults(func=handle_export)
+    p_export.set_defaults(func=handle_export) # Decorated
     
     # Help
     p_help = subparsers.add_parser("help", help="Show help.", add_help=False) # Disable argparse help for this subcmd

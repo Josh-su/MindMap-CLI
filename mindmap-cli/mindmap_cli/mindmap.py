@@ -27,10 +27,6 @@ class MindMap:
             self.root_ids.append(root_node.id)
         return root_node
 
-    def create_root(self, text: str) -> Node: # Kept for compatibility, now adds a root card
-        """Alias for add_new_root_card for initial root creation if needed by old logic."""
-        return self.add_new_root_card(text)
-
     def get_node(self, node_id: str) -> Optional[Node]:
         return self.nodes.get(node_id)
 
